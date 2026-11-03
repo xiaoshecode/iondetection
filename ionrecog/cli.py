@@ -255,6 +255,14 @@ def build_parser():
     sub = parser.add_subparsers(dest="command", required=True)
     from .vision_language.pipeline import add_vlm_parser
     add_vlm_parser(sub)
+    # Parser modules do not import or start neural models. Existing restoration
+    # and VLM commands keep their original implementations and defaults.
+    from .psf_fitting.cli import add_parser as add_psf_parser
+    from .point_localization.cli import add_parser as add_points_parser
+    from .equivariant_localization.cli import add_parser as add_equivariant_parser
+    add_psf_parser(sub)
+    add_points_parser(sub)
+    add_equivariant_parser(sub)
     demo = sub.add_parser("demo", help="Generate small synthetic repeated frames, without copying real acquisitions")
     demo.add_argument("--output", default="data/demo")
     demo.add_argument("--groups", type=int, default=4)
@@ -310,7 +318,9 @@ def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        if args.command == "demo":
+        if hasattr(args, "handler"):
+            args.handler(args)
+        elif args.command == "demo":
             from .synthetic import generate_demo
             dest = Path(args.output)
             if dest.exists() and list_images(dest):

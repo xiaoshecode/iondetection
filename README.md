@@ -1,6 +1,8 @@
 # 大晶格离子图像识别：PC 自监督实验框架
 
-**源码导航：** 三类方案已分别整理到 `ionrecog/classical/`、`ionrecog/self_supervised/`、`ionrecog/vision_language/`。masked 与 diffusion 是第二类中的两个不同方法。文件职责、旧导入兼容及版本说明见 [ionrecog/README.md](ionrecog/README.md)。
+**源码导航：** 原有方案位于 `ionrecog/classical/`、`ionrecog/self_supervised/`、`ionrecog/vision_language/`。新增联合 PSF 拟合、直接点源定位和几何自监督细化分别位于 `ionrecog/psf_fitting/`、`ionrecog/point_localization/`、`ionrecog/equivariant_localization/`。文件职责及入口见 [ionrecog/README.md](ionrecog/README.md)。
+
+**2026-11-04 新增定位代码：** `psf`、`points train/infer`、`equivariant train/infer`。按用户要求，本次只完成代码及语法/接口检查，未执行新增算法测试、训练或实图推理；没有可宣称的新方法准确率或已训练权重。明日运行步骤见 [新定位方法指南](docs/NEW_LOCALIZATION_METHODS.md)。
 
 **新增 VLM 实验分支：** 支持本地 Qwen3-VL 分块候选定位、原图质心细化与信号检查、相同区域/分块的 classical 对照、原始回复审计及中断续跑。使用独立 `python -m ionrecog vlm` 命令，说明见 [VLM 实验指南](docs/VLM_PILOT.md) 和 [本机模型运行环境](docs/VLM_RUNTIME.md)。模型输出是候选，真实定位准确率仍需独立真值。
 
@@ -24,7 +26,7 @@
 
 第一条对应“先分区域，再找亮点”。这里一个连通区域允许有多个离子，不能只取整个区域最亮的一个点，否则密集晶格会大量漏检。检测器使用多个局部峰、最小间距抑制和局部强度质心细化中心。画圈半径是显示及测量参数，不是已估计的离子物理尺寸。
 
-当前区域分割是图像算法，**尚未实现学习式实例分割、Fast/Faster R-CNN 或端到端检测头**。两条学习路线负责恢复强度图，随后共用定位器，方便做公平消融。程序不会按理想晶格补出不存在的离子。
+当前区域分割是图像算法，**尚未实现学习式实例分割或 Fast/Faster R-CNN**。masked/diffusion 两条路线负责恢复强度图，随后共用定位器；新增 `points` 分支直接训练中心热图及亚像素偏移检测头，尚待训练验证。程序不会按理想晶格补出不存在的离子。
 
 ## 2. 目录结构
 
@@ -43,10 +45,14 @@ Net Recog/
 │   ├── reference/session_201/   # 可选：对应构型的全亮参考
 │   └── calibration/dark/        # 暗场预留，当前不自动应用
 ├── ionrecog/
-│   ├── README.md               # 三类方案、四个运行入口与兼容说明
+│   ├── README.md               # 各类方案、运行入口与兼容说明
 │   ├── classical/              # 区域分割、多峰定位、原图测光
 │   ├── self_supervised/        # masked 与 diffusion 的学习实现
 │   ├── vision_language/        # VLM 提议、分块和原图检查
+│   ├── psf_fitting/            # 新：多离子联合光斑拟合
+│   ├── point_localization/     # 新：模拟监督直接点源定位
+│   ├── equivariant_localization/ # 新：几何自监督候选中心细化
+│   ├── localization_common.py  # 新：共用定位输出与磁盘检查
 │   ├── cli.py                  # 共用命令行
 │   ├── data.py / validation.py # 共用原始图读取和集合检查
 │   ├── synthetic.py            # 有位置真值的合成演示
