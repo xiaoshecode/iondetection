@@ -1,0 +1,27 @@
+# First actual-data run; fixed before looking at held-out test predictions.
+data:
+  offset: 0.0
+  scale: auto
+  patch_size: 64
+model:
+  base_channels: 16
+train:
+  epochs: 20
+  steps_per_epoch: 100
+  val_steps: 20
+  batch_size: 4
+  lr: 0.001
+  seed: 42
+  mask_fraction: 0.02
+  num_threads: 4
+inference:
+  tile_size: 256
+  overlap: 32
+detection:
+  sigma: 1.0
+  background_sigma: 10.0
+  threshold_sigma: 4.0
+  min_area: 3
+  min_distance: 4.0
+  radius: 3.0
+  max_ions: 5000

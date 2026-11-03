@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ionrecog"
+version = "0.1.0"
+description = "Self-supervised ion image restoration and region-based localization baselines"
+requires-python = ">=3.9,<3.13"
+dynamic = ["dependencies"]
+
+[project.scripts]
+ionrecog = "ionrecog.cli:main"
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}
+
+[tool.setuptools.packages.find]
+include = ["ionrecog*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

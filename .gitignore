@@ -1,0 +1,19 @@
+# Keep original scientific images, model weights and generated reports out of git.
+.venv/
+.wheelhouse/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+data/**
+!data/**/
+!data/**/.gitkeep
+!data/README.md
+runs/**
+!runs/.gitkeep
+checkpoints/**
+!checkpoints/.gitkeep
+*.pt
+*.pth
