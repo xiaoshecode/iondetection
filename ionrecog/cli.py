@@ -3,6 +3,7 @@ import argparse
 import copy
 import csv
 import json
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -12,8 +13,9 @@ import yaml
 from PIL import Image
 
 from .data import find_groups, list_images, load_image
-from .detection import detect_ions, save_overlay
-from .reference import compare_reference, measure_sites
+from .classical.detection import detect_ions, estimate_detection_noise, save_overlay
+from .classical.region import segment_crystal
+from .classical.reference import compare_reference, measure_sites
 from .validation import validate_splits
 
 DEFAULTS = {
@@ -25,7 +27,8 @@ DEFAULTS = {
     "detection": {"sigma": 1., "background_sigma": 10., "threshold_sigma": 4.,
                   "min_area": 3, "min_distance": 4., "radius": 3., "max_ions": 5000},
     "reference": {"bright_ratio": .5, "dim_ratio": .15},
-    "inference": {"tile_size": 256, "overlap": 32},
+    "inference": {"tile_size": 256, "overlap": 32, "noise_reference": "raw"},
+    "region": {"mode": "off"},
 }
 
 
@@ -84,10 +87,28 @@ def check_report_path(output, sources):
     return target
 
 
+def check_disk_budget(output, files, learned, reserve_gib=2.0):
+    """Conservative output estimate and a minimum free-space reserve."""
+    if not np.isfinite(reserve_gib) or reserve_gib < 0:
+        raise ValueError("--reserve-gib must be finite and nonnegative")
+    location = Path(output).resolve()
+    while not location.exists():
+        location = location.parent
+    free = shutil.disk_usage(location).free
+    # Overlays/JSON/masks plus optional float32 restorations. This is an estimate,
+    # not a file-size guarantee; the reserve is rechecked during processing.
+    estimated = sum(p.stat().st_size for p in files) * (7 if learned else 4) + len(files) * 262144 + 64 * 1024 ** 2
+    reserve = int(reserve_gib * 1024 ** 3)
+    if free < estimated + reserve:
+        raise ValueError("Insufficient disk space: %.2f GiB free, estimated outputs %.2f GiB plus %.2f GiB reserve. Choose a smaller input batch or another output drive." % (free / 1024 ** 3, estimated / 1024 ** 3, reserve_gib))
+    print("Disk: %.2f GiB free; estimated outputs %.2f GiB; reserve %.2f GiB" % (free / 1024 ** 3, estimated / 1024 ** 3, reserve_gib))
+    return {"free_before_bytes": free, "estimated_output_bytes": estimated, "reserve_bytes": reserve}
+
+
 def run_train(args):
     if args.method == "diffusion" and not args.confirm_static:
         raise ValueError("Diffusion requires independent STATIC repeat frames per group. Verify fixed positions/states/exposure/gain, then add --confirm-static. For unrelated single images use --method masked.")
-    from .learning import train_model
+    from .self_supervised.learning import train_model
     cfg = load_config(args.config)
     for key, val in (("epochs", args.epochs), ("steps_per_epoch", args.steps), ("batch_size", args.batch_size)):
         if val is not None:
@@ -105,6 +126,9 @@ def run_train(args):
 
 def run_infer(args):
     cfg = load_config(args.config)
+    noise_source = cfg["inference"]["noise_reference"]
+    if noise_source not in ("raw", "processed"):
+        raise ValueError("inference.noise_reference must be raw or processed")
     files = image_paths(args.input)
     if args.max_images is not None:
         if args.max_images < 1:
@@ -119,12 +143,13 @@ def run_infer(args):
     output = check_destination(args.output, (args.input,))
     if output.exists() and any(output.iterdir()) and not args.overwrite:
         raise ValueError("Inference output is not empty. Choose a new path or --overwrite to replace matching output files.")
+    disk_budget = check_disk_budget(output, files, args.method != "classical", args.reserve_gib)
     output.mkdir(parents=True, exist_ok=True)
     restorer = None
     if args.method != "classical":
         if not args.checkpoint:
             raise ValueError("Learned methods require --checkpoint. Train first; no pretrained experimental weights are supplied.")
-        from .learning import load_restorer
+        from .self_supervised.learning import load_restorer
         restorer = load_restorer(Path(args.checkpoint), device=args.device)
         if getattr(restorer, "method", args.method) != args.method:
             raise ValueError("Checkpoint method does not match --method.")
@@ -139,13 +164,22 @@ def run_infer(args):
     write_csv(aggregate, [], aggregate_fields)
     source = Path(args.input)
     for index, path in enumerate(files):
+        if index % 25 == 0 and shutil.disk_usage(output).free < disk_budget["reserve_bytes"]:
+            raise ValueError("Stopped to preserve the requested disk-space reserve. Completed image outputs are retained.")
         raw = load_image(path)
+        crystal_mask, region_info = segment_crystal(raw, cfg["region"])
+        constrained = region_info["mode"] != "off"
         rel = path.relative_to(source) if source.is_dir() else Path(path.name)
         for sample in range(args.samples):
             start = time.perf_counter()
             seed = args.seed + index * args.samples + sample
             restored = restorer.restore(raw, seed=seed, sample_steps=args.sample_steps) if restorer else raw
-            ions, mask = detect_ions(restored, cfg["detection"])
+            noise_image = raw if noise_source == "raw" else restored
+            threshold = max(float(cfg["detection"].get("threshold_abs", 0)),
+                            float(cfg["detection"]["threshold_sigma"]) * estimate_detection_noise(noise_image, cfg["detection"]["sigma"]))
+            ions, mask = detect_ions(restored, cfg["detection"],
+                                    region_mask=crystal_mask if constrained else None,
+                                    noise_reference=noise_image)
             measurements = measure_sites(raw, ions, cfg["detection"]["radius"])
             for ion, raw_info in zip(ions, measurements):
                 ion.update({k: v for k, v in raw_info.items() if k.startswith("raw_") or k == "roi_clipped"})
@@ -153,29 +187,36 @@ def run_infer(args):
             stem = output / "images" / rel.parent / (rel.name + ("_sample%02d" % sample if args.samples > 1 else ""))
             stem.parent.mkdir(parents=True, exist_ok=True)
             write_json(str(stem) + "_ions.json", {"image": rel.as_posix(), "shape": list(raw.shape),
-                "method": args.method, "seed": seed, "ions": ions,
+                "method": args.method, "seed": seed, "ions": ions, "region": region_info,
+                "noise_reference": noise_source, "detection_threshold_adu": threshold,
                 "note": "Candidate detections. SNR and sampling variability are not calibrated confidence or quantum-state fidelity."})
             write_csv(str(stem) + "_ions.csv", ions)
-            save_overlay(raw, ions, str(stem) + "_overlay.png")
+            save_overlay(raw, ions, str(stem) + "_overlay.png", mask=crystal_mask if constrained else None)
             Image.fromarray(mask.astype(np.uint8) * 255).save(str(stem) + "_foreground.png")
+            if constrained:
+                Image.fromarray(crystal_mask.astype(np.uint8) * 255).save(str(stem) + "_crystal_mask.png")
             if restorer:
                 np.save(str(stem) + "_restored.npy", restored.astype(np.float32), allow_pickle=False)
             # Stream millions of detections instead of retaining every row in RAM.
             with aggregate.open("a", encoding="utf-8", newline="") as stream:
                 csv.DictWriter(stream, fieldnames=aggregate_fields).writerows(ions)
             summaries.append({"image": rel.as_posix(), "sample": sample, "seed": seed,
-                              "count": len(ions), "seconds": time.perf_counter() - start})
+                              "count": len(ions), "seconds": time.perf_counter() - start,
+                              "region_status": region_info["status"], "region_area": region_info["area"],
+                              "detection_threshold_adu": threshold})
         if reference:
             state_rows = compare_reference(raw, reference, **cfg["reference"])
             ref_stem = output / "images" / rel.parent / rel.name
             write_csv(str(ref_stem) + "_reference_photometry.csv", state_rows)
             save_overlay(raw, state_rows, str(ref_stem) + "_reference_overlay.png")
-        print("[%d/%d] %s: %d candidates" % (index + 1, len(files), rel, len(ions)))
-    write_csv(output / "summary.csv", summaries, ("image", "sample", "seed", "count", "seconds"))
+        print("[%d/%d] %s: %d candidates (%s)" % (index + 1, len(files), rel, len(ions), region_info["status"]))
+    write_csv(output / "summary.csv", summaries, ("image", "sample", "seed", "count", "seconds", "region_status", "region_area", "detection_threshold_adu"))
     write_json(output / "summary.json", {"method": args.method, "checkpoint": args.checkpoint,
         "config": cfg, "restoration_config": restorer.config if restorer else None,
         "images": len(files), "samples": args.samples, "frames": summaries,
-        "reference": args.reference, "metrics_are_ground_truth_accuracy": False})
+        "reference": args.reference, "disk_budget": disk_budget,
+        "free_after_bytes": shutil.disk_usage(output).free,
+        "metrics_are_ground_truth_accuracy": False})
     print("Results:", output)
 
 
@@ -198,18 +239,22 @@ def run_reference(args):
             raise ValueError("Reference frames have different shapes.")
         else:
             mean += (raw - mean) / n
-    sites, _ = detect_ions(mean.astype(np.float32), cfg["detection"])
+    crystal_mask, region_info = segment_crystal(mean.astype(np.float32), cfg["region"])
+    sites, _ = detect_ions(mean.astype(np.float32), cfg["detection"],
+                          region_mask=crystal_mask if region_info["mode"] != "off" else None)
     sites = measure_sites(mean.astype(np.float32), sites, cfg["detection"]["radius"])
     if not sites:
         raise ValueError("No sites detected in reference; inspect thresholds/exposure first.")
     write_json(target, {"shape": list(mean.shape), "radius": cfg["detection"]["radius"], "frames": len(files),
-                        "sites": sites, "note": "Requires stable all-bright reference and identical query coordinates/settings; no registration or state calibration."})
+                        "sites": sites, "region": region_info, "note": "Requires stable all-bright reference and identical query coordinates/settings; no registration or state calibration."})
     print("Reference:", target, "sites:", len(sites))
 
 
 def build_parser():
     parser = argparse.ArgumentParser(description="Ion recognition: unlabeled restoration + region-based point localization")
     sub = parser.add_subparsers(dest="command", required=True)
+    from .vision_language.pipeline import add_vlm_parser
+    add_vlm_parser(sub)
     demo = sub.add_parser("demo", help="Generate small synthetic repeated frames, without copying real acquisitions")
     demo.add_argument("--output", default="data/demo")
     demo.add_argument("--groups", type=int, default=4)
@@ -247,6 +292,7 @@ def build_parser():
     infer.add_argument("--seed", type=int, default=42)
     infer.add_argument("--max-images", type=int)
     infer.add_argument("--overwrite", action="store_true")
+    infer.add_argument("--reserve-gib", type=float, default=2.0, help="Preserve this much free disk space; checks output estimate before starting")
     ref = sub.add_parser("reference", help="Build reference sites from same-scene all-bright frames")
     ref.add_argument("--input", required=True)
     ref.add_argument("--output", default="runs/reference_sites.json")
@@ -282,17 +328,24 @@ def main(argv=None):
             run_infer(args)
         elif args.command == "reference":
             run_reference(args)
+        elif args.command == "vlm":
+            from .vision_language.pipeline import run_vlm
+            run_vlm(args)
         else:
             from .evaluation import match_points
             target = check_report_path(args.output, (args.prediction, args.truth))
             pred = json.loads(Path(args.prediction).read_text(encoding="utf-8"))
+            if isinstance(pred, dict) and pred.get("coverage_complete") is False:
+                raise ValueError("Prediction has incomplete coverage; finish failed/pending VLM tiles before evaluation.")
+            if isinstance(pred, dict) and pred.get("has_abstentions") is True:
+                raise ValueError("Model abstained on some tiles; report abstention coverage separately, not as confirmed empty predictions.")
             truth = json.loads(Path(args.truth).read_text(encoding="utf-8"))
             if not isinstance(truth, list):
                 raise ValueError("--truth must be JSON [[x,y],...], not an algorithm's pseudo-labels or an entire demo manifest.")
             result = match_points([[p["x"], p["y"]] for p in pred["ions"]], truth, args.tolerance)
             write_json(target, result)
             print(json.dumps(result, ensure_ascii=False))
-    except (ValueError, FileNotFoundError, FileExistsError, ImportError) as error:
+    except (ValueError, OSError, ImportError) as error:
         parser.exit(2, "Error: %s\n" % error)
 
 

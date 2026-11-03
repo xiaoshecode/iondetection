@@ -1,0 +1,30 @@
+# Known 512x512 optical geometry. This broad SEARCH box is not the final mask.
+# Each raw frame must supply its own connected crystal envelope.
+region:
+  mode: auto
+  expected_shape: [512, 512]
+  search_roi: [180, 220, 300, 430]
+  envelope_sigma: 2.5
+  background_sigma: 20.0
+  support_sigma: 3.0
+  seed_sigma: 6.0
+  support_fraction: 0.06
+  min_contrast: 80.0
+  min_area: 40
+  min_seed_area: 12
+  closing_radius: 3
+  padding: 3
+  reject_border: true
+  max_extent_fraction: 0.85
+inference:
+  tile_size: 256
+  overlap: 32
+  noise_reference: raw
+detection:
+  sigma: 1.0
+  background_sigma: 10.0
+  threshold_sigma: 4.0
+  min_area: 3
+  min_distance: 4.0
+  radius: 3.0
+  max_ions: 5000

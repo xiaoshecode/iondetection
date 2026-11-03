@@ -1,5 +1,10 @@
 # Keep original scientific images, model weights and generated reports out of git.
 .venv/
+.vlm-runtime/
+.venv-vlm/
+.venv-countgd/
+.hf-cache/
+*.gguf
 .wheelhouse/
 __pycache__/
 *.py[cod]

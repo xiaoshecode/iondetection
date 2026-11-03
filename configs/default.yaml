@@ -8,6 +8,9 @@ model:
 inference:
   tile_size: 256
   overlap: 32
+  noise_reference: raw  # Anchor learned-image thresholds to original camera noise.
+region:
+  mode: off  # Historical full-frame baseline. For current 512x512 camera use existing_crystal.yaml.
 train:
   epochs: 10
   steps_per_epoch: 100

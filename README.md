@@ -1,10 +1,16 @@
 # 大晶格离子图像识别：PC 自监督实验框架
 
+**源码导航：** 三类方案已分别整理到 `ionrecog/classical/`、`ionrecog/self_supervised/`、`ionrecog/vision_language/`。masked 与 diffusion 是第二类中的两个不同方法。文件职责、旧导入兼容及版本说明见 [ionrecog/README.md](ionrecog/README.md)。
+
+**新增 VLM 实验分支：** 支持本地 Qwen3-VL 分块候选定位、原图质心细化与信号检查、相同区域/分块的 classical 对照、原始回复审计及中断续跑。使用独立 `python -m ionrecog vlm` 命令，说明见 [VLM 实验指南](docs/VLM_PILOT.md) 和 [本机模型运行环境](docs/VLM_RUNTIME.md)。模型输出是候选，真实定位准确率仍需独立真值。
+
 本项目用于二维离子晶格的**候选离子中心定位、标圈与原图亮度测量**。面向每张几百至约一千个离子、边缘存在拖尾和微运动模糊的实验，先在 PC 上建立可复现实验流程，不涉及 FPGA 部署。
 
 已实现可运行的训练、推理、合成数据、评估和测试代码。**这是研究起点，代码不附带通用预训练权重，真实大晶格准确率尚未验证。** 自监督可以减少去噪训练所需标注，但不会自动提供可信的离子状态标签。论文中的定位准确率仍需要独立验证依据。
 
 **本机已有数据已导入，并完成第一次真实数据训练。** 426 张用于 masked 训练、250 张验证、263 张测试，另 5 张不同相机设置的图片单独保留。训练和测试记录见 [已有数据运行说明](docs/EXISTING_DATA_RUN.md)。本地权重位于 `runs/existing_20261103/masked_training/best.pt`，这是本次数据训练的初步模型，不是通用预训练模型。
+
+**晶格外误检修复：** 现有 512×512 相机图请使用 [configs/existing_crystal.yaml](configs/existing_crystal.yaml)。它在一次设定的粗搜索框内，从每张原图估计实际晶格边界，classical/masked 共用区域及原图噪声阈值；找不到可靠区域时不输出候选。已重跑 250 张图，见 [修复说明与命令](docs/CRYSTAL_REGION.md) 和本地 [新版对照报告](runs/crystal_region_v1/comparison/index.html)。通用配置仍保留 `region.mode: off` 的历史基线行为，不能把该相机的像素框直接套到其他尺寸或新光路。推理会估算磁盘需求并默认保留 2 GiB 空间。
 
 ## 1. 两个想法如何落到代码
 
@@ -35,13 +41,15 @@ Net Recog/
 │   ├── reference/session_201/   # 可选：对应构型的全亮参考
 │   └── calibration/dark/        # 暗场预留，当前不自动应用
 ├── ionrecog/
-│   ├── cli.py                   # 命令行
-│   ├── data.py / validation.py  # 原始图读取和集合检查
-│   ├── detection.py             # 区域、多峰与亚像素中心
-│   ├── models.py / learning.py  # U-Net、DDPM/DDIM、自监督训练
-│   ├── reference.py             # 原始图参考位置光度测量
-│   ├── synthetic.py             # 有位置真值的合成演示
-│   └── evaluation.py            # 一对一匹配定位评估
+│   ├── README.md               # 三类方案、四个运行入口与兼容说明
+│   ├── classical/              # 区域分割、多峰定位、原图测光
+│   ├── self_supervised/        # masked 与 diffusion 的学习实现
+│   ├── vision_language/        # VLM 提议、分块和原图检查
+│   ├── cli.py                  # 共用命令行
+│   ├── data.py / validation.py # 共用原始图读取和集合检查
+│   ├── synthetic.py            # 有位置真值的合成演示
+│   ├── evaluation.py           # 一对一匹配定位评估
+│   └── detection.py 等         # 旧导入路径的轻量兼容入口
 ├── scripts/run_pipeline.ps1     # 一键检查、训练和推理
 ├── tests/                      # 有意义的数据/算法/训练测试
 ├── docs/                       # 讨论记录和验证记录
