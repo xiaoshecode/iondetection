@@ -2,6 +2,7 @@
 .venv/
 .vlm-runtime/
 .venv-vlm/
+.venv-vlm-train/
 .venv-countgd/
 .hf-cache/
 *.gguf
@@ -13,6 +14,7 @@ __pycache__/
 build/
 dist/
 data/**
+/data.zip
 !data/**/
 !data/**/.gitkeep
 !data/README.md
