@@ -27,7 +27,14 @@ def write_json(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(path.name + ".tmp")
     temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False) + "\n", encoding="utf-8")
-    temporary.replace(path)
+    for attempt in range(20):
+        try:
+            temporary.replace(path)
+            break
+        except OSError as error:
+            if getattr(error, "winerror", None) not in (5, 32, 33) or attempt == 19:
+                raise
+            time.sleep(.05)
 
 
 def load_records(dataset, split):
@@ -107,6 +114,23 @@ def check_space(path, reserve_gib):
     return free
 
 
+def checkpoint_score(loss, metric, report=None):
+    """Choose checkpoints using validation only, keeping generation failures."""
+    if not math.isfinite(loss):
+        raise ValueError("Validation loss must be finite")
+    if metric == "loss":
+        return (-loss,)
+    if metric != "f1_3px" or report is None:
+        raise ValueError("Generation-based selection requires a validation report")
+    row = next(r for r in report["summary"] if r["scope"] == "strict" and r["tolerance_px"] == 3.)
+    if row["evaluated_images"] != report["total_images"] or row["excluded_images"] != 0:
+        raise ValueError("Checkpoint selection must include all validation failures")
+    score = row["micro_f1"]
+    if score is None or not math.isfinite(score):
+        raise ValueError("Validation F1 must be finite")
+    return (score, -report["failure_images"], -loss)
+
+
 def efficient_attention_setup(torch):
     """Windows torch2.5 lacks FlashAttention; materialize GQA KV for efficient SDPA.
 
@@ -147,6 +171,13 @@ def load_model(model_path, rank, torch):
     model.config.use_cache = False
     processor = AutoProcessor.from_pretrained(str(model_path), local_files_only=True, use_fast=False)
     return model, processor
+
+
+def restore_adapter(model, state):
+    from peft import set_peft_model_state_dict
+    loaded = set_peft_model_state_dict(model, state)
+    if loaded.unexpected_keys or any("lora_" in key for key in loaded.missing_keys):
+        raise ValueError("Adapter state does not match model parameter names")
 
 
 def encode_record(record, processor, dataset, image_tokens, torch, include_answer=True):
@@ -230,6 +261,10 @@ def _train(args):
             raise ValueError(name + " must be positive")
     if args.lr <= 0 or not math.isfinite(args.lr):
         raise ValueError("Learning rate must be positive and finite")
+    if args.save_every < 0 or args.recovery_every < 0 or args.stop_after < 0:
+        raise ValueError("Checkpoint/stop intervals must be nonnegative")
+    if args.skip_generation and args.selection_metric != "loss":
+        raise ValueError("Generation-based selection cannot skip generation")
     initial_free = check_space(output, args.reserve_gib)
     train_rows, val_rows, test_rows = [load_records(dataset, split) for split in ("train", "val", "test")]
     validate_split_separation(train_rows, val_rows, test_rows)
@@ -248,6 +283,19 @@ def _train(args):
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
     attention_context, windows_gqa_patch = efficient_attention_setup(torch)
+    immutable_config = {name: getattr(args, name) for name in
+        ("accumulate", "rank", "lr", "image_tokens", "eval_every", "eval_samples", "selection_metric",
+         "max_new_tokens", "seed", "skip_generation", "skip_baseline_generation")}
+    immutable_config.update(dataset_manifest_sha256=sha256(dataset / "manifest.json"),
+        training_code_sha256=sha256(Path(__file__)), model_revision=provenance["revision"],
+        model_files={entry["file"]: entry["sha256"] for entry in provenance["files"]},
+        torch_version=str(torch.__version__))
+    resume_state = None
+    if args.resume_from:
+        from .training_checkpoint import load_resume_checkpoint
+        resume_state = load_resume_checkpoint(Path(args.resume_from).resolve(), immutable_config, torch)
+        if resume_state["completed_step"] > args.steps:
+            raise ValueError("Requested total steps precede the recovery checkpoint")
     output.mkdir(parents=True, exist_ok=True)
     config = dict(vars(args), model_provenance=provenance, dataset_manifest_sha256=sha256(dataset / "manifest.json"),
         training_code_sha256=sha256(Path(__file__)),
@@ -266,7 +314,7 @@ def _train(args):
     optimizer = torch.optim.AdamW([p for _, p in trainable], lr=args.lr, weight_decay=.01)
     val_subset, test_subset = evaluation_subset(val_rows, args.eval_samples), evaluation_subset(test_rows, args.eval_samples)
     write_json(output / "generation_evaluation_ids.json", {"val": [r["id"] for r in val_subset], "test": [r["id"] for r in test_subset]})
-    if not args.skip_generation:
+    if not resume_state and not args.skip_generation and not args.skip_baseline_generation:
         write_json(output / "progress.json", {"stage": "baseline_generation", "completed_steps": 0})
         before = generate_responses(model, processor, test_subset, dataset, output / "before_responses", args.image_tokens,
                                     args.max_new_tokens, attention_context, torch)
@@ -282,19 +330,82 @@ def _train(args):
                 total += float(answer_loss(model, encoded, prefix, torch))
         return total / len(val_subset)
 
-    write_json(output / "progress.json", {"stage": "initial_validation", "completed_steps": 0})
-    initial_val = validation_loss()
-    best, best_step, history = initial_val, 0, []
-    model.save_pretrained(output / "best_adapter", safe_serialization=True, save_embedding_layers=False)
-    processor.save_pretrained(output / "processor")
-    order = list(range(len(train_rows)))
+    validation_history = resume_state["validation_history"] if resume_state else []
+
+    def validation_record(step, value):
+        record = {"step": step, "validation_answer_loss": value, "images": len(val_subset)}
+        report = None
+        if args.selection_metric == "f1_3px":
+            check_space(output, args.reserve_gib)
+            write_json(output / "progress.json", {"stage": "validation_generation", "completed_steps": step})
+            destination = output / "validation" / ("step_%06d" % step)
+            replies = generate_responses(model, processor, val_subset, dataset, destination / "responses",
+                args.image_tokens, args.max_new_tokens, attention_context, torch)
+            from .training_evaluation import evaluate_predictions
+            report = evaluate_predictions(val_subset, replies, destination / "report", dataset)
+            record["strict_metrics"] = [r for r in report["summary"] if r["scope"] == "strict"]
+            record["status_counts"] = report["status_counts"]
+            record["failure_images"] = report["failure_images"]
+        key = checkpoint_score(value, args.selection_metric, report)
+        record["selection_score"] = list(key)
+        validation_history.append(record)
+        write_json(output / "validation_history.json", validation_history)
+        print("Validation " + json.dumps(record), flush=True)
+        return key
+
     rng = random.Random(args.seed)
-    rng.shuffle(order)
-    position = 0
+    if resume_state:
+        initial_val, best, best_step = resume_state["initial_val"], resume_state["best_loss"], resume_state["best_step"]
+        best_score, history = tuple(resume_state["best_score"]), resume_state["history"]
+        order, position, completed_step = resume_state["order"], resume_state["position"], resume_state["completed_step"]
+        if sorted(order) != list(range(len(train_rows))) or not 0 <= position <= len(order):
+            raise ValueError("Recovery checkpoint has an invalid sampler state")
+        if len(history) != completed_step or (history and history[-1]["step"] != completed_step):
+            raise ValueError("Recovery history does not match completed optimizer steps")
+        initial_adapter = resume_state["initial_adapter"]
+        restore_adapter(model, resume_state["best_adapter_state"])
+        model.save_pretrained(output / "best_adapter", safe_serialization=True, save_embedding_layers=False)
+        restore_adapter(model, resume_state["adapter_state"])
+        optimizer.load_state_dict(resume_state["optimizer_state"])
+        elapsed_base = resume_state["elapsed_seconds"]
+        write_json(output / "training_history.json", history)
+        write_json(output / "validation_history.json", validation_history)
+    else:
+        write_json(output / "progress.json", {"stage": "initial_validation", "completed_steps": 0})
+        initial_val = validation_loss()
+        best, best_step, history, completed_step, elapsed_base = initial_val, 0, [], 0, 0.
+        best_score = validation_record(0, initial_val)
+        model.save_pretrained(output / "best_adapter", safe_serialization=True, save_embedding_layers=False)
+        order = list(range(len(train_rows)))
+        rng.shuffle(order)
+        position = 0
+        initial_adapter = {name: p.detach().cpu().clone() for name, p in trainable}
+    processor.save_pretrained(output / "processor")
+    if resume_state:
+        rng.setstate(resume_state["shuffle_rng_state"])
+        torch.set_rng_state(resume_state["torch_rng_state"])
+        torch.cuda.set_rng_state_all(resume_state["cuda_rng_states"])
     start = time.perf_counter()
-    initial_adapter = {name: p.detach().cpu().clone() for name, p in trainable}
+
+    def save_recovery(step):
+        check_space(output, args.reserve_gib)
+        from peft import get_peft_model_state_dict
+        from safetensors.torch import load_file
+        from .training_checkpoint import save_resume_checkpoint
+        return save_resume_checkpoint(output, {"version": 1, "completed_step": step,
+            "immutable_config": immutable_config, "adapter_state": get_peft_model_state_dict(model),
+            "best_adapter_state": load_file(str(output / "best_adapter" / "adapter_model.safetensors")),
+            "optimizer_state": optimizer.state_dict(), "initial_adapter": initial_adapter,
+            "order": order, "position": position, "shuffle_rng_state": rng.getstate(),
+            "torch_rng_state": torch.get_rng_state(), "cuda_rng_states": torch.cuda.get_rng_state_all(),
+            "history": history, "validation_history": validation_history, "best_score": best_score,
+            "best_step": best_step, "best_loss": best, "initial_val": initial_val,
+            "elapsed_seconds": elapsed_base + time.perf_counter() - start}, torch)
+
+    if args.recovery_every:
+        save_recovery(completed_step)
     try:
-        for step in range(1, args.steps + 1):
+        for step in range(completed_step + 1, args.steps + 1):
             write_json(output / "progress.json", {"stage": "training", "completed_steps": step - 1})
             check_space(output, args.reserve_gib)
             model.train()
@@ -319,26 +430,46 @@ def _train(args):
                 raise ValueError("Nonfinite/zero adapter gradient; stopping")
             optimizer.step()
             row = {"step": step, "train_answer_loss": sum(losses) / len(losses), "gradient_norm": grad_norm,
-                   "elapsed_seconds": time.perf_counter() - start,
+                   "examples_seen": step * args.accumulate, "epochs_seen": step * args.accumulate / len(train_rows),
+                   "elapsed_seconds": elapsed_base + time.perf_counter() - start,
                    "peak_allocated_gib": torch.cuda.max_memory_allocated() / 1024**3,
                    "peak_reserved_gib": torch.cuda.max_memory_reserved() / 1024**3}
             if step % args.eval_every == 0 or step == args.steps:
                 row["validation_answer_loss"] = validation_loss()
-                if row["validation_answer_loss"] < best:
+                candidate_score = validation_record(step, row["validation_answer_loss"])
+                row["validation_selection_score"] = list(candidate_score)
+                if candidate_score > best_score:
                     best, best_step = row["validation_answer_loss"], step
+                    best_score = candidate_score
                     model.save_pretrained(output / "best_adapter", safe_serialization=True, save_embedding_layers=False)
+            if args.save_every and (step % args.save_every == 0 or step == args.steps):
+                check_space(output, args.reserve_gib)
+                checkpoint = output / "checkpoints" / ("step_%06d" % step)
+                checkpoint.mkdir(parents=True, exist_ok=False)
+                model.save_pretrained(checkpoint / "adapter", safe_serialization=True, save_embedding_layers=False)
+                write_json(checkpoint / "metadata.json", dict(row,
+                    dataset_manifest_sha256=config["dataset_manifest_sha256"],
+                    training_code_sha256=config["training_code_sha256"],
+                    note="Adapter snapshot for evaluation; optimizer and RNG state are not saved for exact resume."))
             history.append(row)
             write_json(output / "training_history.json", history)
+            stop_requested = (args.stop_after and step >= args.stop_after) or (output / "STOP_REQUESTED").exists()
+            if stop_requested or (args.recovery_every and (step % args.recovery_every == 0 or step == args.steps)):
+                save_recovery(step)
             print(json.dumps(row), flush=True)
+            if stop_requested and step < args.steps:
+                config["status"] = "stopped"
+                write_json(output / "run_config.json", config)
+                write_json(output / "progress.json", {"stage": "stopped", "completed_steps": step,
+                    "recovery": str(output / "recovery" / "latest.json")})
+                print("Stopped at optimizer boundary; recovery checkpoint saved.", flush=True)
+                return
         model.save_pretrained(output / "last_adapter", safe_serialization=True, save_embedding_layers=False)
         last_delta = sum(float((p.detach().cpu() - initial_adapter[name]).square().sum()) for name, p in trainable)**.5
         if last_delta <= 0:
             raise ValueError("Adapter parameters did not change")
-        from peft import set_peft_model_state_dict
         from safetensors.torch import load_file
-        loaded = set_peft_model_state_dict(model, load_file(str(output / "best_adapter" / "adapter_model.safetensors")))
-        if loaded.unexpected_keys or any("lora_" in key for key in loaded.missing_keys):
-            raise ValueError("Selected adapter does not match model parameter names")
+        restore_adapter(model, load_file(str(output / "best_adapter" / "adapter_model.safetensors")))
         selected_delta = sum(float((p.detach().cpu() - initial_adapter[name]).square().sum()) for name, p in trainable)**.5
         if not args.skip_generation:
             write_json(output / "progress.json", {"stage": "selected_adapter_generation", "completed_steps": args.steps})
@@ -349,10 +480,14 @@ def _train(args):
         write_json(output / "training_summary.json", {"status": "complete", "optimizer_steps": args.steps,
             "examples_seen": args.steps * args.accumulate, "initial_validation_loss": initial_val,
             "best_validation_loss": best, "best_step": best_step, "last_adapter_delta_l2": last_delta,
+            "selection_metric": args.selection_metric, "selected_validation_score": list(best_score),
+            "selected_validation_loss": best,
+            "lowest_validation_loss": min(r["validation_answer_loss"] for r in validation_history),
+            "epochs_seen": args.steps * args.accumulate / len(train_rows),
             "selected_adapter_delta_l2": selected_delta,
-            "peak_allocated_gib": torch.cuda.max_memory_allocated()/1024**3,
-            "peak_reserved_gib": torch.cuda.max_memory_reserved()/1024**3,
-            "training_seconds": time.perf_counter() - start, "free_gib_before": initial_free,
+            "peak_allocated_gib": max([torch.cuda.max_memory_allocated()/1024**3] + [r["peak_allocated_gib"] for r in history]),
+            "peak_reserved_gib": max([torch.cuda.max_memory_reserved()/1024**3] + [r["peak_reserved_gib"] for r in history]),
+            "training_seconds": elapsed_base + time.perf_counter() - start, "free_gib_before": initial_free,
             "free_gib_after": check_space(output, args.reserve_gib),
             "note": "Validation loss and localization agreement are relative to classical pseudo-labels, not true ion accuracy."})
         config["status"] = "complete"
@@ -397,10 +532,17 @@ def main(argv=None):
     parser.add_argument("--image-tokens", type=int, default=1024)
     parser.add_argument("--eval-every", type=int, default=16)
     parser.add_argument("--eval-samples", type=int, default=8)
+    parser.add_argument("--selection-metric", choices=("loss", "f1_3px"), default="loss",
+        help="Select weights by validation loss, or strict validation F1 with failures included")
+    parser.add_argument("--save-every", type=int, default=0, help="Keep an adapter snapshot every N optimizer steps; 0 disables")
+    parser.add_argument("--recovery-every", type=int, default=0, help="Save full recoverable training state every N steps, keeping the latest three")
+    parser.add_argument("--resume-from", help="Verified recovery latest.json or step checkpoint; output must be a NEW directory")
+    parser.add_argument("--stop-after", type=int, default=0, help="Stop safely after this absolute optimizer step (0 disables)")
     parser.add_argument("--max-new-tokens", type=int, default=512)
     parser.add_argument("--seed", type=int, default=20261103)
     parser.add_argument("--reserve-gib", type=float, default=8.)
     parser.add_argument("--skip-generation", action="store_true", help="Smoke test only; no claim of before/after improvement")
+    parser.add_argument("--skip-baseline-generation", action="store_true", help="Skip repeated base-model test predictions; still evaluate validation and selected adapter")
     args = parser.parse_args(argv)
     train(args)
 

@@ -71,3 +71,69 @@ def test_output_protection_and_disk_reserve(tmp_path,monkeypatch):
     monkeypatch.setattr('ionrecog.vision_language.training_data.shutil.disk_usage',lambda _:SimpleNamespace(free=1))
     with pytest.raises(ValueError,match='disk'):
         check_output(tmp_path/'labels',[raw],8)
+
+
+def test_expansion_balances_density_and_prefers_unused_source_frames():
+    from ionrecog.vision_language.training_expansion import select_additions
+    def record(name,raw,points,left=0):
+        return {'id':name,'group':'g','raw_sha256':raw,'points':[[1,1]]*points,'tile':[left,0,left+64,64]}
+    parent=[record('a','old',2),record('b','old',8,80),record('c','old',20,160)]
+    candidates=[record('d','old',2,240),record('e','old',8,320),record('f','old',20,400)]
+    candidates += [record('new'+str(i),'new'+str(i),n) for i,n in enumerate((2,8,20))]
+    selected,_=select_additions(parent,candidates,6)
+    assert len(selected)==3 and all(r['raw_sha256'].startswith('new') for r in selected)
+    assert [len(r['points']) for r in selected]==[2,8,20]
+
+
+def test_expansion_rejects_duplicate_and_nearly_identical_same_frame_crops():
+    from ionrecog.vision_language.training_expansion import select_additions
+    parent=[{'id':'old','group':'g','raw_sha256':'frame','points':[[1,1]],'tile':[0,0,64,64]}]
+    same=dict(parent[0],id='near',tile=[1,0,65,64])
+    candidates=[parent[0],same,
+                dict(parent[0],id='medium',raw_sha256='f2',points=[[1,1]]*8),
+                dict(parent[0],id='dense',raw_sha256='f3',points=[[1,1]]*20)]
+    with pytest.raises(ValueError,match='Not enough'):
+        select_additions(parent,candidates,4)
+
+
+def test_expansion_preserves_parent_bytes_and_frozen_splits(tmp_path,monkeypatch):
+    from pathlib import Path
+    from PIL import Image
+    from ionrecog.vision_language import training_expansion as expansion
+    from ionrecog.vision_language.training_data import file_hash
+    parent=tmp_path/'parent'; parent.mkdir()
+    data=tmp_path/'raw'; data.mkdir()
+    manifest={'splits':{s:s+'.jsonl' for s in ('train','val','test')},'tile_size':64,'edge_margin_px':1.5,
+              'max_points':24,'teacher_config':{'region':{'expected_shape':[128,128]}},'limitations':[],
+              'teacher_code_sha256':{}}
+    package=Path(expansion.__file__).parents[1]
+    for name,path in [('training_data.py',Path(expansion.__file__).with_name('training_data.py')),
+                      ('detection.py',package/'classical/detection.py'),('region.py',package/'classical/region.py')]:
+        manifest['teacher_code_sha256'][name]=file_hash(path)
+    for i,split in enumerate(('train','val','test')):
+        rows=[]
+        for j,n in enumerate((2,8,20) if split=='train' else (2,)):
+            Image.new('RGB',(64,64),(10*i+j+1,0,0)).save(parent/(split+str(j)+'.png'))
+            rows.append({'id':split+str(j),'split':split,'image':split+str(j)+'.png',
+                         'image_sha256':file_hash(parent/(split+str(j)+'.png')),'raw_sha256':split+str(j),
+                         'raw_path':split+str(j),'group':split,'points':[[20,20]]*n,'tile':[0,0,64,64],
+                         'prompt':'same prompt','response':'{"points":[],"uncertain":false}'})
+        # Deliberate extra JSON whitespace proves these lines are not re-serialized.
+        (parent/(split+'.jsonl')).write_text(''.join(json.dumps(row,indent=None,separators=(', ', ': '))+'\n' for row in rows),encoding='utf-8')
+    (parent/'manifest.json').write_text(json.dumps(manifest),encoding='utf-8')
+    frames=[{'id':'add'+str(i),'split':'train','group':'train','raw_path':str(i),'raw_sha256':'new'+str(i)} for i in range(3)]
+    monkeypatch.setattr(expansion,'select_frames',lambda *args:(frames,[]))
+    def candidate(frame,*args,**kwargs):
+        i=int(frame['raw_path'])
+        return [dict(frame,points=[[20,20]]*(2,8,20)[i],tile=[0,0,64,64],prompt='same prompt',
+                     response='{"points":[],"uncertain":false}',display={'lo':0,'hi':65535})], {'id':frame['id']}
+    monkeypatch.setattr(expansion,'frame_candidates',candidate)
+    monkeypatch.setattr(expansion,'load_image',lambda name:np.arange(128*128,dtype=np.float32).reshape(128,128)+int(name)*4096)
+    output=tmp_path/'expanded'
+    result=expansion.expand_training_dataset(parent,data,output,train_crops=6,reserve_gib=0,workers=1)
+    assert result['counts']=={'train':6,'val':1,'test':1}
+    assert (output/'train.jsonl').read_bytes().startswith((parent/'train.jsonl').read_bytes())
+    for split in ('val','test'):
+        assert (output/(split+'.jsonl')).read_bytes()==(parent/(split+'.jsonl')).read_bytes()
+        assert (output/(split+'0.png')).read_bytes()==(parent/(split+'0.png')).read_bytes()
+    assert result['expansion']['all_crop_image_hashes_unique']

@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from ionrecog.vision_language.finetune import evaluation_subset, load_records, sha256, uniform_subset, validate_split_separation
+from ionrecog.vision_language.finetune import checkpoint_score, evaluation_subset, load_records, sha256, uniform_subset, validate_split_separation
 
 
 def dataset_fixture(tmp_path):
@@ -62,3 +62,31 @@ def test_density_subset_avoids_round_robin_index_aliasing():
     selected = evaluation_subset(rows, 8)
     assert [sum(len(r['points']) == n for r in selected) for n in (2, 8, 20)] == [3, 3, 2]
     assert len({r['id'] for r in selected}) == 8
+
+
+def generation_report(f1, failures):
+    return {'total_images': 32, 'failure_images': failures,
+            'summary': [{'scope': 'valid_only', 'tolerance_px': 3., 'micro_f1': 1.},
+                        {'scope': 'strict', 'tolerance_px': 3., 'micro_f1': f1,
+                         'evaluated_images': 32, 'excluded_images': 0}]}
+
+
+def test_checkpoint_selection_uses_strict_localization_before_loss():
+    # Lower token loss must not overrule worse actual generation/localization.
+    good = checkpoint_score(.8, 'f1_3px', generation_report(.7, 3))
+    bad = checkpoint_score(.5, 'f1_3px', generation_report(.6, 2))
+    assert good > bad
+    assert checkpoint_score(.9, 'f1_3px', generation_report(.7, 2)) > good
+    assert checkpoint_score(.7, 'f1_3px', generation_report(.7, 3)) > good
+    assert checkpoint_score(.5, 'loss') > checkpoint_score(.8, 'loss')
+
+
+def test_selection_rejects_excluded_failures_and_nonfinite_loss():
+    report = generation_report(.7, 3)
+    report['summary'][1]['excluded_images'] = 3
+    with pytest.raises(ValueError, match='include all'):
+        checkpoint_score(.8, 'f1_3px', report)
+    with pytest.raises(ValueError, match='finite'):
+        checkpoint_score(float('nan'), 'loss')
+    with pytest.raises(ValueError, match='report'):
+        checkpoint_score(.8, 'f1_3px')
