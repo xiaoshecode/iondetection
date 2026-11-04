@@ -1,4 +1,4 @@
-# Keep original scientific images, model weights and generated reports out of git.
+# Keep original scientific images, model weights and unselected reports out of git.
 .venv/
 .vlm-runtime/
 .venv-vlm/
@@ -27,7 +27,7 @@ checkpoints/**
 *.pt
 *.pth
 
-# CCD tools only: keep raw acquisitions, previews and inference artifacts local.
+# CCD tools and selected reports only; keep raw acquisitions and full artifacts local.
 /CCD_2000ion/**
 !/CCD_2000ion/README.md
 !/CCD_2000ion/view_ion.py
@@ -36,3 +36,18 @@ checkpoints/**
 !/CCD_2000ion/script/
 !/CCD_2000ion/script/*.py
 !/CCD_2000ion/script/*.txt
+
+# Reviewed 267-frame CCD report, examples and provenance (no raw/restored arrays).
+!/CCD_2000ion/recognition_20261104_20260403/
+!/CCD_2000ion/recognition_20261104_20260403/commands.json
+!/CCD_2000ion/recognition_20261104_20260403/config_used.yaml
+!/CCD_2000ion/recognition_20261104_20260403/conversion_manifest.json
+!/CCD_2000ion/recognition_20261104_20260403/integrity_audit.json
+!/CCD_2000ion/recognition_20261104_20260403/comparison/
+!/CCD_2000ion/recognition_20261104_20260403/comparison/README.md
+!/CCD_2000ion/recognition_20261104_20260403/comparison/report.html
+!/CCD_2000ion/recognition_20261104_20260403/comparison/识别结果总结.txt
+!/CCD_2000ion/recognition_20261104_20260403/comparison/summary.json
+!/CCD_2000ion/recognition_20261104_20260403/comparison/per_frame.csv
+!/CCD_2000ion/recognition_20261104_20260403/comparison/examples/
+!/CCD_2000ion/recognition_20261104_20260403/comparison/examples/*.png

@@ -1,0 +1,454 @@
+{
+  "images": 267,
+  "shape_yx": [
+    201,
+    1024
+  ],
+  "methods": {
+    "classical": {
+      "count": {
+        "mean": 2116.0973782771534,
+        "median": 2117.0,
+        "min": 2081.0,
+        "max": 2137.0,
+        "std_population": 8.90429096677278,
+        "sum": 564998.0
+      },
+      "outer8px_border_count": {
+        "mean": 0.00749063670411985,
+        "median": 0.0,
+        "min": 0.0,
+        "max": 1.0,
+        "std_population": 0.0862237036196355,
+        "sum": 2.0
+      },
+      "seconds_including_exports": {
+        "mean": 0.6536586389513112,
+        "median": 0.6398711000000006,
+        "min": 0.6056805999999995,
+        "max": 1.1431883999999997,
+        "std_population": 0.05787005340119886,
+        "sum": 174.5268566000001
+      }
+    },
+    "masked": {
+      "count": {
+        "mean": 2090.8838951310863,
+        "median": 2093.0,
+        "min": 2058.0,
+        "max": 2116.0,
+        "std_population": 10.86612451527737,
+        "sum": 558266.0
+      },
+      "outer8px_border_count": {
+        "mean": 81.42696629213484,
+        "median": 82.0,
+        "min": 63.0,
+        "max": 101.0,
+        "std_population": 6.336188744060731,
+        "sum": 21741.0
+      },
+      "seconds_including_exports": {
+        "mean": 0.962491005243446,
+        "median": 0.9451673000000014,
+        "min": 0.8561550000000002,
+        "max": 1.4741928999999985,
+        "std_population": 0.0721768038794574,
+        "sum": 256.9850984000001
+      }
+    }
+  },
+  "count_difference_masked_minus_classical": {
+    "mean": -25.213483146067414,
+    "median": -26.0,
+    "min": -58.0,
+    "max": 15.0,
+    "std_population": 11.471644158659188,
+    "sum": -6732.0
+  },
+  "agreement": {
+    "tolerance_px": 2.0,
+    "one_to_one_matched_pairs": 524363,
+    "classical_unmatched": 40635,
+    "masked_unmatched": 33903,
+    "matched_fraction_of_classical": 0.9280793914314741,
+    "matched_fraction_of_masked": 0.9392708852052606,
+    "matched_distance_px": {
+      "mean": 0.289206821495494,
+      "median": 0.24096306055524805,
+      "min": 0.0008784547631820441,
+      "max": 1.9998875917719878,
+      "std_population": 0.19808112748698986,
+      "sum": 151649.3565398417
+    }
+  },
+  "input_conversion": {
+    "formula": "png_uint16 = round(original_float32 + offset)",
+    "offset": 1161.0,
+    "gain": 1,
+    "max_quantization_error": 0.5,
+    "resized": false,
+    "clipped": false
+  },
+  "border_diagnostic": {
+    "width_px": 8,
+    "coordinate_rule": "x < 8 or x >= 1016 or y < 8 or y >= 193",
+    "used_to_filter_detections": false,
+    "ground_truth_region": false
+  },
+  "accuracy_evaluated": false,
+  "ground_truth_available": false,
+  "no_accuracy_claim": true,
+  "no_count_target_assumption": true,
+  "masked_checkpoint": "F:\\CQI\\Bell Camera\\Net Recog\\runs\\existing_20261103\\masked_training\\best.pt",
+  "restoration_config": {
+    "data": {
+      "offset": 0.0,
+      "scale": 8426.0,
+      "patch_size": 64,
+      "max_target_frames": 8
+    },
+    "model": {
+      "base_channels": 16
+    },
+    "train": {
+      "epochs": 20,
+      "steps_per_epoch": 100,
+      "batch_size": 4,
+      "lr": 0.001,
+      "seed": 42,
+      "mask_fraction": 0.02,
+      "val_steps": 20,
+      "num_threads": 4
+    },
+    "diffusion": {
+      "timesteps": 100,
+      "sampling_steps": 20,
+      "schedule": "cosine",
+      "beta_start": 0.0001,
+      "beta_end": 0.02
+    },
+    "inference": {
+      "tile_size": 256,
+      "overlap": 32,
+      "noise_reference": "raw"
+    },
+    "detection": {
+      "sigma": 1.0,
+      "background_sigma": 10.0,
+      "threshold_sigma": 4.0,
+      "min_area": 3,
+      "min_distance": 4.0,
+      "radius": 3.0,
+      "max_ions": 5000
+    },
+    "reference": {
+      "bright_ratio": 0.5,
+      "dim_ratio": 0.15
+    }
+  },
+  "all_required_outputs_present_and_coordinates_valid": true,
+  "examples": [
+    {
+      "image": "20260403_121315.npy",
+      "overview": "examples/20260403_121315_overview.png",
+      "crops": "examples/20260403_121315_crops.png",
+      "display_limits_original_units": [
+        -43.713101062774655,
+        2961.317722900393
+      ],
+      "crops_xyxy_exclusive": {
+        "center": [
+          384,
+          65,
+          640,
+          145
+        ],
+        "upper edge": [
+          384,
+          0,
+          640,
+          80
+        ],
+        "lower edge": [
+          384,
+          121,
+          640,
+          201
+        ],
+        "left end": [
+          0,
+          55,
+          256,
+          135
+        ],
+        "right end": [
+          768,
+          55,
+          1024,
+          135
+        ]
+      },
+      "index_zero_based": 0,
+      "selection": "按文件名时间顺序等间隔抽样"
+    },
+    {
+      "image": "20260403_124056.npy",
+      "overview": "examples/20260403_124056_overview.png",
+      "crops": "examples/20260403_124056_crops.png",
+      "display_limits_original_units": [
+        -33.5,
+        2876.067988037153
+      ],
+      "crops_xyxy_exclusive": {
+        "center": [
+          384,
+          65,
+          640,
+          145
+        ],
+        "upper edge": [
+          384,
+          0,
+          640,
+          80
+        ],
+        "lower edge": [
+          384,
+          121,
+          640,
+          201
+        ],
+        "left end": [
+          0,
+          55,
+          256,
+          135
+        ],
+        "right end": [
+          768,
+          55,
+          1024,
+          135
+        ]
+      },
+      "index_zero_based": 53,
+      "selection": "按文件名时间顺序等间隔抽样"
+    },
+    {
+      "image": "20260403_131053.npy",
+      "overview": "examples/20260403_131053_overview.png",
+      "crops": "examples/20260403_131053_crops.png",
+      "display_limits_original_units": [
+        -30.239999771118164,
+        2866.3869697265636
+      ],
+      "crops_xyxy_exclusive": {
+        "center": [
+          384,
+          65,
+          640,
+          145
+        ],
+        "upper edge": [
+          384,
+          0,
+          640,
+          80
+        ],
+        "lower edge": [
+          384,
+          121,
+          640,
+          201
+        ],
+        "left end": [
+          0,
+          55,
+          256,
+          135
+        ],
+        "right end": [
+          768,
+          55,
+          1024,
+          135
+        ]
+      },
+      "index_zero_based": 106,
+      "selection": "按文件名时间顺序等间隔抽样"
+    },
+    {
+      "image": "20260403_134514.npy",
+      "overview": "examples/20260403_134514_overview.png",
+      "crops": "examples/20260403_134514_crops.png",
+      "display_limits_original_units": [
+        -29.875399274826048,
+        2979.841285888675
+      ],
+      "crops_xyxy_exclusive": {
+        "center": [
+          384,
+          65,
+          640,
+          145
+        ],
+        "upper edge": [
+          384,
+          0,
+          640,
+          80
+        ],
+        "lower edge": [
+          384,
+          121,
+          640,
+          201
+        ],
+        "left end": [
+          0,
+          55,
+          256,
+          135
+        ],
+        "right end": [
+          768,
+          55,
+          1024,
+          135
+        ]
+      },
+      "index_zero_based": 159,
+      "selection": "按文件名时间顺序等间隔抽样"
+    },
+    {
+      "image": "20260403_141737.npy",
+      "overview": "examples/20260403_141737_overview.png",
+      "crops": "examples/20260403_141737_crops.png",
+      "display_limits_original_units": [
+        -38.09769886016846,
+        3084.3957727051
+      ],
+      "crops_xyxy_exclusive": {
+        "center": [
+          384,
+          65,
+          640,
+          145
+        ],
+        "upper edge": [
+          384,
+          0,
+          640,
+          80
+        ],
+        "lower edge": [
+          384,
+          121,
+          640,
+          201
+        ],
+        "left end": [
+          0,
+          55,
+          256,
+          135
+        ],
+        "right end": [
+          768,
+          55,
+          1024,
+          135
+        ]
+      },
+      "index_zero_based": 212,
+      "selection": "按文件名时间顺序等间隔抽样"
+    },
+    {
+      "image": "20260403_145254.npy",
+      "overview": "examples/20260403_145254_overview.png",
+      "crops": "examples/20260403_145254_crops.png",
+      "display_limits_original_units": [
+        -31.157699794769286,
+        3095.8698642578365
+      ],
+      "crops_xyxy_exclusive": {
+        "center": [
+          384,
+          65,
+          640,
+          145
+        ],
+        "upper edge": [
+          384,
+          0,
+          640,
+          80
+        ],
+        "lower edge": [
+          384,
+          121,
+          640,
+          201
+        ],
+        "left end": [
+          0,
+          55,
+          256,
+          135
+        ],
+        "right end": [
+          768,
+          55,
+          1024,
+          135
+        ]
+      },
+      "index_zero_based": 266,
+      "selection": "按文件名时间顺序等间隔抽样"
+    },
+    {
+      "image": "20260403_122505.npy",
+      "overview": "examples/20260403_122505_overview.png",
+      "crops": "examples/20260403_122505_crops.png",
+      "display_limits_original_units": [
+        -42.59769886016846,
+        3015.3349477539423
+      ],
+      "crops_xyxy_exclusive": {
+        "center": [
+          384,
+          65,
+          640,
+          145
+        ],
+        "upper edge": [
+          384,
+          0,
+          640,
+          80
+        ],
+        "lower edge": [
+          384,
+          121,
+          640,
+          201
+        ],
+        "left end": [
+          0,
+          55,
+          256,
+          135
+        ],
+        "right end": [
+          768,
+          55,
+          1024,
+          135
+        ]
+      },
+      "index_zero_based": 22,
+      "selection": "补充诊断：两方法候选数量差绝对值最大；不是代表性抽样"
+    }
+  ]
+}

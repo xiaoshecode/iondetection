@@ -1,0 +1,40 @@
+[
+  [
+    "F:\\CQI\\Bell Camera\\Net Recog\\.venv\\Scripts\\python.exe",
+    "-B",
+    "-u",
+    "-m",
+    "ionrecog",
+    "infer",
+    "--method",
+    "classical",
+    "--input",
+    "F:\\CQI\\Bell Camera\\Net Recog\\CCD_2000ion\\recognition_20261104_20260403\\input_png16",
+    "--config",
+    "F:\\CQI\\Bell Camera\\Net Recog\\CCD_2000ion\\recognition_20261104_20260403\\config_used.yaml",
+    "--output",
+    "F:\\CQI\\Bell Camera\\Net Recog\\CCD_2000ion\\recognition_20261104_20260403\\classical",
+    "--device",
+    "cpu"
+  ],
+  [
+    "F:\\CQI\\Bell Camera\\Net Recog\\.venv\\Scripts\\python.exe",
+    "-B",
+    "-u",
+    "-m",
+    "ionrecog",
+    "infer",
+    "--method",
+    "masked",
+    "--input",
+    "F:\\CQI\\Bell Camera\\Net Recog\\CCD_2000ion\\recognition_20261104_20260403\\input_png16",
+    "--config",
+    "F:\\CQI\\Bell Camera\\Net Recog\\CCD_2000ion\\recognition_20261104_20260403\\config_used.yaml",
+    "--output",
+    "F:\\CQI\\Bell Camera\\Net Recog\\CCD_2000ion\\recognition_20261104_20260403\\masked",
+    "--device",
+    "cpu",
+    "--checkpoint",
+    "F:\\CQI\\Bell Camera\\Net Recog\\runs\\existing_20261103\\masked_training\\best.pt"
+  ]
+]

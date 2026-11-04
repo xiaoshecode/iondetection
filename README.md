@@ -2,7 +2,7 @@
 
 **源码导航：** 原有方案位于 `ionrecog/classical/`、`ionrecog/self_supervised/`、`ionrecog/vision_language/`。新增联合 PSF 拟合、直接点源定位和几何自监督细化分别位于 `ionrecog/psf_fitting/`、`ionrecog/point_localization/`、`ionrecog/equivariant_localization/`。文件职责及入口见 [ionrecog/README.md](ionrecog/README.md)。
 
-**CCD 数据工具：** [CCD_2000ion](CCD_2000ion/README.md) 提供原始 NPY 查看器、现有 classical/masked 推理调用和结果对照脚本。Git 仅包含工具与说明，原始采集、权重及生成结果需在本地准备。
+**CCD 数据工具与结果：** [CCD_2000ion](CCD_2000ion/README.md) 提供原始 NPY 查看器、现有 classical/masked 推理调用和结果对照脚本。[267 张 CCD 图像识别总结](CCD_2000ion/recognition_20261104_20260403/comparison/README.md) 包含逐帧统计、示例图和离线报告；原始采集、权重及全量逐帧产物保留在本地。
 
 **2026-11-04 新增定位代码：** `psf`、`points train/infer`、`equivariant train/infer`。按用户要求，本次只完成代码及语法/接口检查，未执行新增算法测试、训练或实图推理；没有可宣称的新方法准确率或已训练权重。明日运行步骤见 [新定位方法指南](docs/NEW_LOCALIZATION_METHODS.md)。
 
