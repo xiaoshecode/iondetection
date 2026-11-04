@@ -1,0 +1,39 @@
+# Explicit fixed ADU mapping: adjust offset/scale using training calibration.
+# Start with single GPU, profile memory and timing before increasing batch/width.
+data:
+  patch_size: 128
+  offset: 0.0
+  scale: 65535.0
+  max_target_frames: 8
+model:
+  base_channels: 64
+diffusion:
+  timesteps: 1000
+  sampling_steps: 50
+train:
+  steps: 50000
+  batch_size: 8
+  grad_accum: 2
+  lr: 0.0002
+  seed: 42
+  validate_every: 500
+  val_batches: 10
+  save_every: 500
+  ema_decay: 0.999
+  precision: bf16
+  num_threads: 4
+  grad_clip: 1.0
+inference:
+  tile_size: 256
+  overlap: 32
+region:
+  mode: "off"
+# Set region.mode=auto only after calibrating the envelope on validation data.
+# Do not reuse a fixed ROI from the old small crystal without inspection.
+detection:
+  sigma: 1.0
+  background_sigma: 10.0
+  threshold_sigma: 4.0
+  min_area: 3
+  min_distance: 4.0
+  radius: 3.0

@@ -11,6 +11,7 @@
 | 方案一：传统图像定位 | [classical/](classical/) | `infer --method classical` | 原图晶格区域分割、多峰检测、亚像素中心和亮度测量；不需要训练 |
 | 方案二 A：遮挡像素自监督 | [self_supervised/](self_supervised/) | `train/infer --method masked` | 单张噪声图遮挡部分像素，学习恢复后再定位；已完成现有真实数据的初步训练与推理 |
 | 方案二 B：条件扩散恢复 | [self_supervised/](self_supervised/) | `train/infer --method diffusion` | 用独立重复帧均值作为低噪代理目标，条件 DDPM 训练、DDIM 推理；已跑通合成数据流程，尚未在当前真实数据上完成有效性验证 |
+| 条件扩散服务器实验包 | [diffusion/](diffusion/README.md) | `python -m ionrecog.diffusion` | 配对/重复帧训练、DDP/AMP/EMA、断点续训、批量恢复与定位评测、冻结 FLUX 空间特征探测；与旧入口/checkpoint独立，使用说明及验证边界见目录README |
 | 方案三：视觉语言模型 | [vision_language/](vision_language/) | `vlm` | VLM 根据图块提出中心坐标，再做原图支持检查与细化；支持本地服务、离线 replay、审计和续跑 |
 | 方案四：联合光斑拟合 | [psf_fitting/](psf_fitting/README.md) | `psf` | 用局部多离子 PSF 联合拟合细化位置及检查数量；无需训练，需选择符合成像的 PSF 参数 |
 | 方案五：直接点源定位 | [point_localization/](point_localization/README.md) | `points train/infer` | 在线模拟图及坐标监督，直接学习中心检测和亚像素偏移；不附带训练权重 |

@@ -1,0 +1,8 @@
+# Optional, separate FLUX probe environment; backend binds to this diffusers API.
+diffusers==0.35.1
+transformers==4.44.2
+accelerate==1.10.1
+huggingface-hub==0.34.4
+safetensors==0.6.2
+sentencepiece==0.2.0
+protobuf==5.29.5

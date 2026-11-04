@@ -3,6 +3,8 @@
 .vlm-runtime/
 .venv-vlm/
 .venv-vlm-train/
+.venv-diffusion/
+.venv-diffusion-features/
 .venv-countgd/
 .hf-cache/
 *.gguf
