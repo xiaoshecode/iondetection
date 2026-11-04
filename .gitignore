@@ -26,3 +26,13 @@ checkpoints/**
 !checkpoints/.gitkeep
 *.pt
 *.pth
+
+# CCD tools only: keep raw acquisitions, previews and inference artifacts local.
+/CCD_2000ion/**
+!/CCD_2000ion/README.md
+!/CCD_2000ion/view_ion.py
+!/CCD_2000ion/*.bat
+!/CCD_2000ion/*.txt
+!/CCD_2000ion/script/
+!/CCD_2000ion/script/*.py
+!/CCD_2000ion/script/*.txt

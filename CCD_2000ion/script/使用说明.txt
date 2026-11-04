@@ -1,0 +1,32 @@
+本目录只放 CCD_2000ion 新数据的适配、调用和结果汇总脚本。
+算法实现仍调用 Net Recog/ionrecog 中原有 classical 和 masked，未复制或修改算法。
+
+从项目目录运行（同名输出目录已存在时会拒绝覆盖）：
+  cd "F:\CQI\Bell Camera\Net Recog"
+  .\.venv\Scripts\python.exe -B -u CCD_2000ion\script\run_recognition.py --output CCD_2000ion\recognition_new_run
+
+run_recognition.py 做以下工作：
+1. 对原始 NPY、现有 Python 算法源码、现有配置和 masked best.pt 记录 SHA256。
+2. 扫描本批次全部图像，计算一次共同 offset=ceil(max(0,-全批次最小值))。
+3. PNG=round(NPY+offset)，保存为16位灰度；不缩放、不转置、不裁负值、不逐帧归一化。
+   本批次 offset=1161，整数化最大误差0.5个源数据强度单位，PNG回读逐像素验证。
+4. 在结果目录复制 configs/default.yaml，只给 region.mode 的 off 加引号，
+   避免 PyYAML 按 YAML 1.1 将 off 解释为布尔值。现有配置文件不作修改。
+5. 顺序调用原有 python -m ionrecog infer --method classical / masked。
+   masked 加载 runs/existing_20261103/masked_training/best.pt；CPU推理，不训练。
+6. 核对原始 NPY、源码、配置、权重的 SHA256，输出 integrity_audit.json。
+
+运行参数：现有通用 full-frame 配置（region.mode="off"）；
+sigma=1, background_sigma=10, threshold_sigma=4, min_distance=4, radius=3, max_ions=5000；
+noise_reference=raw，masked tile_size=256、overlap=32。
+旧512x512相机的 existing_crystal.yaml 不适用此201x1024数据。
+
+报告生成（两种方法都完成后运行）：
+  .\.venv\Scripts\python.exe -B CCD_2000ion\script\summarize_recognition.py --run-dir CCD_2000ion\recognition_new_run --input CCD_2000ion\20260403_2000pure --offset 1161
+
+结果中的 raw_* 量与 masked *_restored.npy 使用加入 offset 后的整数输入尺度。
+绝对强度若要返回源数据尺度需减去 offset；背景相减的量会抵消常量偏置，但仍有量化误差。
+输出坐标直接对应原 NPY 的列 x、行 y（零基）。
+masked 的旧训练归一化保持 offset=0、scale=8426；输入平移会改变其输入分布。
+识别数量是候选数，无独立人工标注时不能解释为真实离子数或准确率；
+文件夹名称中的2000不作为逐帧精确真值。

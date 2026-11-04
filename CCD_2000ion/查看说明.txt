@@ -1,0 +1,39 @@
+离子原始数据查看器
+
+直接双击本目录的「查看离子图.bat」，默认打开排序后的第一张 .npy 图像。
+依赖：Python、numpy、matplotlib。本机 E:\Anaconda\python.exe 已有这些依赖。
+
+PowerShell 命令：
+  cd "F:\CQI\Bell Camera\Net Recog\CCD_2000ion"
+  python view_ion.py
+
+选择指定图像：
+  python view_ion.py "20260403_2000pure\20260403_121315.npy"
+
+选择第二批数据中的第 11 张（index 从 0 开始）：
+  python view_ion.py "20260404_2000pure" --index 10
+
+只保存预览，不打开窗口：
+  python view_ion.py --save "previews\first_image.png" --no-show
+
+操作：
+  鼠标滚轮：以指针位置为中心缩放。
+  窗口工具栏：平移、框选放大。
+  移动鼠标：底部状态栏显示 x（列）、y（行）和原始像素值。
+  Display range：拖动两端，调节显示亮度上下限。
+  Previous / Next 或键盘左右键：上一张 / 下一张。
+  Reset view 或 R：恢复整幅图。
+  Auto contrast：恢复默认的 1%～99.9% 分位数显示范围。
+  Full range：显示原始最小值到最大值的完整范围。
+  Gray / color：切换灰度和 inferno 伪彩色。
+  Save PNG 或 S：将当前视野、当前对比度保存到本目录 previews 文件夹。
+  Save PNG 同名文件会覆盖；也可以通过 --save 指定不同输出名。
+
+数据说明：
+  读取二维 .npy 数组，保留 float32 和负值，不裁零，不去噪，不识别离子。
+  按原数组方向显示：左上角为 (x=0,y=0)，x 向右、y 向下；不转置、不翻转。
+  像素宽高比例为 1:1。未提供物理标定，因此坐标用像素，强度用文件中的原始单位。
+  默认分位数拉伸只影响显示，范围外值显示为色图两端颜色，不改写原始 .npy。
+  每次切图会重新计算显示范围。跨图比较亮度时建议使用固定范围，例如：
+    python view_ion.py --vmin -200 --vmax 4000
+  PNG 是用于查看的渲染图，不能替代原始数值数据。
